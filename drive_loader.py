@@ -1,4 +1,4 @@
-﻿import io, os
+﻿import io, os, json, base64, tempfile
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
@@ -17,8 +17,13 @@ EXPORT_MAP = {
 }
 
 def get_service():
-    creds = service_account.Credentials.from_service_account_file(
-        os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE','service_account.json'), scopes=SCOPES)
+    b64 = os.getenv('GOOGLE_CREDENTIALS_BASE64')
+    if b64:
+        info = json.loads(base64.b64decode(b64).decode('utf-8'))
+        creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    else:
+        creds = service_account.Credentials.from_service_account_file(
+            os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE','service_account.json'), scopes=SCOPES)
     return build('drive','v3',credentials=creds)
 
 def list_files(service, folder_id, path=''):
