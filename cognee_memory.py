@@ -1,37 +1,29 @@
-﻿import os, cognee
-from dotenv import load_dotenv
-from drive_loader import get_service, list_files, download
-load_dotenv()
-
-FOLDER_ID = os.getenv('GOOGLE_DRIVE_FOLDER_ID')
+﻿import os
+import cognee
+from drive_loader import get_service, list_files, read_file
 
 async def sync_drive():
     svc = get_service()
-    files = list_files(svc, FOLDER_ID)
-    print(f'พบ {len(files)} ไฟล์')
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
+    files = list_files(folder_id)
+    texts = []
     for f in files:
         try:
-            buf, name = download(svc, f['id'], f['mimeType'], f['name'])
-            parts = f['path'].strip('/').split('/')
-            ds = f"stockbnn_{parts[0]}".replace(' ','_')
-            await cognee.add(buf, dataset_name=ds)
-            print(f"  loaded: {f['path']}")
+            content = read_file(f['id'], f['mimeType'])
+            if content:
+                texts.append(f"=== {f['name']} ===\n{content}")
         except Exception as e:
-            print(f"  skip: {f['path']} -> {e}")
-    await cognee.cognify()
-    print('Knowledge Graph ready!')
+            print(f"Skip {f['name']}: {e}")
+    if texts:
+        combined = "\n\n".join(texts)
+        await cognee.add(combined)
+        await cognee.cognify()
 
 async def ask(question: str) -> str:
     try:
-        results = await cognee.recall(question)
-        if not results:
-            return 'ไม่พบข้อมูลที่เกี่ยวข้องครับ'
-        answers = []
-        for r in results[:5]:
-            if hasattr(r, 'text'):
-                answers.append(r.text)
-            elif isinstance(r, str):
-                answers.append(r)
-        return '\n'.join(answers) if answers else str(results[0])
+        results = await cognee.search(cognee.SearchType.INSIGHTS, question)
+        if results:
+            return str(results[0])
+        return "ไม่พบข้อมูลที่เกี่ยวข้องครับ"
     except Exception as e:
-        return f'เกิดข้อผิดพลาด: {str(e)}'
+        return f"เกิดข้อผิดพลาด: {str(e)}"
