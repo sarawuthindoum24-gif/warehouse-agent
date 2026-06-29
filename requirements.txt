@@ -1,0 +1,10 @@
+﻿cognee[postgres]
+fastapi
+uvicorn[standard]
+line-bot-sdk>=3.0.0
+google-auth
+google-auth-httplib2
+google-api-python-client
+python-dotenv
+apscheduler
+openai
