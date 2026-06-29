@@ -1,57 +1,38 @@
-﻿import io, os, json, base64, tempfile
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
+﻿import os
+import json
+import base64
 from google.oauth2 import service_account
-from dotenv import load_dotenv
-load_dotenv()
+from googleapiclient.discovery import build
 
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-SUPPORTED = {
-    'application/vnd.google-apps.spreadsheet',
-    'application/vnd.google-apps.document',
-    'text/csv','text/plain','application/pdf',
-}
-EXPORT_MAP = {
-    'application/vnd.google-apps.spreadsheet': ('text/csv','.csv'),
-    'application/vnd.google-apps.document':    ('text/plain','.txt'),
-}
 
 def get_service():
-    b64 = os.getenv('GOOGLE_CREDENTIALS_BASE64')
-    if b64:
-        info = json.loads(base64.b64decode(b64).decode('utf-8'))
-        creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
-    else:
-        creds = service_account.Credentials.from_service_account_file(
-            os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE','service_account.json'), scopes=SCOPES)
-    return build('drive','v3',credentials=creds)
+    b64 = os.environ.get("GOOGLE_CREDENTIALS_BASE64", "")
+    b64 = b64.strip()
+    padding = 4 - len(b64) % 4
+    if padding != 4:
+        b64 += "=" * padding
+    info = json.loads(base64.b64decode(b64).decode('utf-8'))
+    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    return build('drive', 'v3', credentials=creds)
 
-def list_files(service, folder_id, path=''):
-    files = []
-    items = service.files().list(
-        q=f"'{folder_id}' in parents and trashed=false",
-        fields='files(id,name,mimeType)'
-    ).execute().get('files',[])
-    for item in items:
-        fp = f"{path}/{item['name']}"
-        if item['mimeType'] == 'application/vnd.google-apps.folder':
-            files.extend(list_files(service, item['id'], fp))
-        elif item['mimeType'] in SUPPORTED:
-            files.append({**item,'path':fp})
-    return files
+def list_files(folder_id=None):
+    if not folder_id:
+        folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
+    service = get_service()
+    query = f"'{folder_id}' in parents and trashed=false"
+    results = service.files().list(q=query, fields="files(id, name, mimeType)").execute()
+    return results.get('files', [])
 
-def download(service, fid, mime, name):
-    buf = io.BytesIO()
-    if mime in EXPORT_MAP:
-        em, ext = EXPORT_MAP[mime]
-        req = service.files().export_media(fileId=fid, mimeType=em)
-        name += ext
+def read_file(file_id, mime_type):
+    service = get_service()
+    if 'google-apps' in mime_type:
+        content = service.files().export(fileId=file_id, mimeType='text/plain').execute()
     else:
-        req = service.files().get_media(fileId=fid)
-    dl = MediaIoBaseDownload(buf, req)
-    done = False
-    while not done:
-        _, done = dl.next_chunk()
-    buf.seek(0)
-    buf.name = name
-    return buf, name
+        content = service.files().get_media(fileId=file_id).execute()
+    if isinstance(content, bytes):
+        try:
+            return content.decode('utf-8')
+        except:
+            return content.decode('latin-1')
+    return str(content)
